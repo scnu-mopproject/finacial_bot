@@ -1,0 +1,21 @@
+# --- Core data stack ---
+pandas>=2.0
+numpy>=1.24
+pyyaml>=6.0
+
+# --- A-share data source (free, no token) ---
+# akshare pulls news / quotes / capital-flow / fundamentals.
+# Optional at runtime: the pipeline falls back to mock data if it is missing,
+# so the skeleton stays runnable in any environment.
+akshare>=1.12
+
+# --- Modeling ---
+# LightGBM is the baseline ranker for the limit-up probability model.
+lightgbm>=4.0
+scikit-learn>=1.3
+
+# --- Scheduling / CLI ---
+schedule>=1.2
+
+# --- Dev / test ---
+pytest>=7.0

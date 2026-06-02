@@ -1,0 +1,24 @@
+{
+  "_comment": "Copy to config/portfolio.json (git-ignored). Represents your live holdings & cash.",
+  "as_of": "2026-06-02",
+  "cash": 50000.0,
+  "currency": "CNY",
+  "positions": [
+    {
+      "code": "600519",
+      "name": "贵州茅台",
+      "shares": 100,
+      "cost_price": 1620.0,
+      "current_price": 1685.0
+    },
+    {
+      "code": "300750",
+      "name": "宁德时代",
+      "shares": 200,
+      "cost_price": 215.0,
+      "current_price": 198.5
+    }
+  ],
+  "realized_pnl_ytd": 12450.0,
+  "risk_tolerance": "balanced"
+}

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finbot"
+version = "0.1.0"
+description = "A-share intelligent agent: crawl news & market data, engineer factors, rank limit-up candidates, and build portfolio strategies — orchestrated via Claude Code Skills + Agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+data = ["akshare>=1.12"]
+model = ["lightgbm>=4.0", "scikit-learn>=1.3"]
+all = ["akshare>=1.12", "lightgbm>=4.0", "scikit-learn>=1.3", "schedule>=1.2"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+finbot = "finbot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

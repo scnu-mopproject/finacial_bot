@@ -1,0 +1,65 @@
+# finbot configuration — copy to config/config.yaml and edit.
+# config.yaml is git-ignored so your tokens / portfolio never get committed.
+
+market: A_SHARE          # currently only A-share is supported
+
+data:
+  source: akshare        # akshare | mock
+  # When akshare is unavailable or fails, the pipeline falls back to deterministic
+  # mock data so the end-to-end skeleton always runs.
+  fallback_to_mock: true
+  cache_dir: data/cache
+  raw_dir: data/raw
+  processed_dir: data/processed
+  # Universe filter applied before feature engineering.
+  universe:
+    exclude_st: true            # drop ST / *ST names
+    exclude_new_ipo_days: 60    # drop stocks listed < N days ago
+    min_amount_yi: 0.5          # min daily turnover (亿元) to be considered liquid
+  news:
+    sources: [eastmoney, sina, cls]   # crawled via akshare news interfaces
+    lookback_hours: 24
+
+features:
+  # Toggle factor families. Each maps to a builder in finbot.features.engineering.
+  technical: true        # momentum, volume, volatility, MA structure
+  capital_flow: true     # main-force net inflow, large-order ratio
+  sentiment: true        # news count / polarity, limit-up board sentiment
+  board_linkage: true    # sector strength & leader-follower linkage
+  limitup_genes: true    # historical "limit-up gene", consecutive boards, etc.
+
+model:
+  type: lightgbm         # lightgbm | rule_score
+  task: rank_limitup_probability
+  store_dir: models_store
+  top_n: 20              # how many candidates to surface each day
+  # The model outputs a *probability score*, NOT a guarantee. Treat as a ranking aid.
+  min_score: 0.15        # filter out very-low-probability names
+
+strategy:
+  # User portfolio is read from this file (git-ignored). See portfolio.example.json.
+  portfolio_file: config/portfolio.json
+  risk:
+    max_position_pct: 0.15      # max single-name weight
+    max_new_positions: 3        # max new buys per day
+    stop_loss_pct: -0.07        # per-position stop loss
+    take_profit_pct: 0.15       # per-position take profit
+    max_total_exposure: 0.90    # keep cash buffer
+  style: balanced               # conservative | balanced | aggressive
+
+schedule:
+  # Times are local (Asia/Shanghai). The orchestrator runs these stages.
+  timezone: Asia/Shanghai
+  pre_market: "08:30"    # crawl overnight news + prep universe
+  intraday: "09:40"      # first read after open (optional)
+  post_market: "15:30"   # full pipeline: features -> model -> strategy -> report
+
+report:
+  output_dir: reports
+  format: markdown       # markdown | html
+
+llm:
+  # The Claude Code Agents (market-analyst / stock-picker / strategy-advisor)
+  # consume the JSON the CLI emits. No API key is needed for the skeleton itself;
+  # interpretation happens inside Claude Code via the Skills.
+  model: claude-opus-4-8

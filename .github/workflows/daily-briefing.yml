@@ -1,0 +1,48 @@
+name: daily-briefing
+
+# Scheduled A-share daily run. By default it runs on mock data so the workflow
+# is self-contained and green out of the box. Flip FINBOT_DATA_SOURCE to
+# "akshare" (and ensure outbound network is allowed) for live data.
+on:
+  schedule:
+    # 07:30 UTC ≈ 15:30 Asia/Shanghai (after market close). Cron is UTC.
+    - cron: "30 7 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Trading date YYYY-MM-DD (default: today)"
+        required: false
+      source:
+        description: "Data source: akshare or mock"
+        required: false
+        default: "mock"
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    env:
+      FINBOT_DATA_SOURCE: ${{ github.event.inputs.source || 'mock' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          # Live data needs akshare; harmless to install for mock too.
+          pip install akshare || echo "akshare install skipped (mock mode ok)"
+      - name: Run daily pipeline
+        run: |
+          DATE_ARG=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then DATE_ARG="--date ${{ github.event.inputs.date }}"; fi
+          finbot run $DATE_ARG --source "$FINBOT_DATA_SOURCE"
+      - name: Upload report & artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: finbot-briefing
+          path: |
+            reports/
+            artifacts/
+          if-no-files-found: warn

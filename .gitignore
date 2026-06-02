@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Data & artifacts (never commit market data / credentials)
+data/raw/
+data/processed/
+data/cache/
+artifacts/
+*.parquet
+*.csv
+*.sqlite
+*.db
+
+# Models
+models_store/
+*.pkl
+*.joblib
+*.txt.model
+
+# Secrets / local config
+config/config.yaml
+config/config.local.yaml
+.env
+*.local
+
+# Reports output
+reports/*.md
+reports/*.html
+!reports/.gitkeep
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.log
+.pytest_cache/
+.ipynb_checkpoints/
