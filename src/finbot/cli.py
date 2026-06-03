@@ -44,6 +44,29 @@ def _resolve(args):
     return cfg, date
 
 
+def cmd_update(args) -> int:
+    """Incrementally update the local data warehouse (design §4 / M1)."""
+    from .data import Warehouse, get_provider
+
+    cfg, date = _resolve(args)
+    wh = Warehouse(
+        root=str(cfg.path("data.warehouse_dir")),
+        benchmark=cfg.get("data.benchmark", "000985"),
+    )
+    if args.status:
+        _print_json({"warehouse": str(cfg.path("data.warehouse_dir")), "tables": wh.status()})
+        return 0
+    provider = get_provider(cfg.get("data.source", "akshare"), cfg.get("data.fallback_to_mock", True))
+    counts = wh.update(
+        asof=date,
+        provider=provider,
+        history_days=int(cfg.get("data.history_days", 250)),
+        incremental_days=int(cfg.get("data.incremental_days", 10)),
+    )
+    _print_json({"date": date, "data_source": provider.name, "ingested_rows": counts, "tables": wh.status()})
+    return 0
+
+
 def cmd_crawl(args) -> int:
     cfg, date = _resolve(args)
     out = pipeline.stage_crawl(date, cfg)
@@ -89,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"finbot {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="verbose logging")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_update = sub.add_parser("update", help="增量更新本地数据仓库（行情/基础/指数/宏观/新闻）")
+    _add_common(p_update)
+    p_update.add_argument("--status", action="store_true", help="只显示仓库现状，不拉取")
+    p_update.set_defaults(func=cmd_update)
 
     p_crawl = sub.add_parser("crawl", help="爬取行情快照 + 财经新闻")
     _add_common(p_crawl)

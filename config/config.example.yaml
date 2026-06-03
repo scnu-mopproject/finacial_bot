@@ -11,6 +11,12 @@ data:
   cache_dir: data/cache
   raw_dir: data/raw
   processed_dir: data/processed
+  # Local incremental warehouse (design §4 / M1): download once, update daily,
+  # read locally in ms. Populated by `finbot update`.
+  warehouse_dir: data/warehouse
+  benchmark: "000985"    # 中证全指 — the relative-return benchmark
+  history_days: 250      # initial backfill depth on first `finbot update`
+  incremental_days: 10   # catch-up depth on subsequent updates
   # Universe filter applied before feature engineering.
   universe:
     exclude_st: true            # drop ST / *ST names
@@ -30,11 +36,13 @@ features:
 
 model:
   type: lightgbm         # lightgbm | rule_score
-  task: rank_limitup_probability
+  # Redesign: rank cross-sectional FORWARD RETURNS, not limit-up events.
+  task: rank_forward_return
   store_dir: models_store
   top_n: 20              # how many candidates to surface each day
-  # The model outputs a *probability score*, NOT a guarantee. Treat as a ranking aid.
-  min_score: 0.15        # filter out very-low-probability names
+  holding_period_days: 5 # H: forward-return horizon (weekly cadence)
+  # Output is a relative cross-sectional ranking score, NOT a probability or guarantee.
+  min_score: 0.15
 
 strategy:
   # User portfolio is read from this file (git-ignored). See portfolio.example.json.
@@ -46,6 +54,11 @@ strategy:
     take_profit_pct: 0.15       # per-position take profit
     max_total_exposure: 0.90    # keep cash buffer
   style: balanced               # conservative | balanced | aggressive
+  rebalance_days: 5             # weekly rebalance (≈ holding period H)
+  n_holdings: 12                # target basket size (8-15), dynamic membership
+  enter_pct: 0.15               # buy if ranked in the top 15%
+  hold_pct: 0.30                # keep holding until it drops out of top 30% (hysteresis)
+  max_turnover: 0.30            # cap turnover per rebalance to control costs
 
 schedule:
   # Times are local (Asia/Shanghai). The orchestrator runs these stages.

@@ -49,6 +49,21 @@ class DataProvider:
         """
         raise NotImplementedError
 
+    def macro(self, date: str, days: int = 120) -> pd.DataFrame:
+        """Cross-asset macro panel ending at ``date`` (commodities/FX/rates).
+
+        Long format columns: date, series, value. See ``mock.MACRO_SERIES``
+        for the series catalog (USDCNY, USDCNH, DXY, GOLD, OIL, COPPER, yields).
+        """
+        raise NotImplementedError
+
+    def index_bars(self, code: str, date: str, days: int = 120) -> pd.DataFrame:
+        """Benchmark index daily history ending at ``date``.
+
+        Columns: date, close.
+        """
+        raise NotImplementedError
+
 
 class MockProvider(DataProvider):
     name = "mock"
@@ -61,6 +76,12 @@ class MockProvider(DataProvider):
 
     def news(self, date: str) -> pd.DataFrame:
         return mock.mock_news(date)
+
+    def macro(self, date: str, days: int = 120) -> pd.DataFrame:
+        return mock.mock_macro(date, days)
+
+    def index_bars(self, code: str, date: str, days: int = 120) -> pd.DataFrame:
+        return mock.mock_index(code, date, days)
 
 
 class AkShareProvider(DataProvider):
@@ -145,6 +166,24 @@ class AkShareProvider(DataProvider):
             return df[keep]
 
         return self._guard(_real, lambda: self._mock.news(date))
+
+    def macro(self, date: str, days: int = 120) -> pd.DataFrame:
+        # Real cross-asset pulls vary a lot by AkShare version / availability, so
+        # this is intentionally best-effort and degrades to deterministic mock.
+        # TODO(M1+): wire concrete interfaces, e.g.
+        #   USDCNY/USDCNH -> ak.currency_boc_sina / ak.fx_spot_quote
+        #   DXY/GOLD/OIL  -> ak.futures_foreign_hist / ak.macro_*
+        #   CN10Y/US10Y   -> ak.bond_zh_us_rate
+        return self._guard(lambda: self._mock.macro(date, days), lambda: self._mock.macro(date, days))
+
+    def index_bars(self, code: str, date: str, days: int = 120) -> pd.DataFrame:
+        def _real() -> pd.DataFrame:
+            end = date.replace("-", "")
+            df = self.ak.index_zh_a_hist(symbol=code, period="daily", end_date=end)
+            df = df.rename(columns={"日期": "date", "收盘": "close"})
+            return df[["date", "close"]].tail(days)
+
+        return self._guard(_real, lambda: self._mock.index_bars(code, date, days))
 
 
 def get_provider(source: str = "akshare", fallback_to_mock: bool = True) -> DataProvider:

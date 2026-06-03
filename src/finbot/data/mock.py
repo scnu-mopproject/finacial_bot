@@ -119,3 +119,59 @@ def mock_news(date: str, n: int = 25) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+# --- macro / cross-asset (commodities, FX, rates) ------------------------
+# Series we synthesize for the cross-asset macro module (design §4/§5/§10).
+MACRO_SERIES = {
+    "USDCNY": 7.15,   # onshore RMB
+    "USDCNH": 7.16,   # offshore RMB
+    "DXY": 104.0,     # US dollar index
+    "GOLD": 2300.0,   # COMEX-ish gold
+    "OIL": 80.0,      # crude
+    "COPPER": 4.2,    # copper
+    "US10Y": 4.2,     # US 10y yield (%)
+    "CN10Y": 2.3,     # CN 10y yield (%)
+}
+
+
+def _trading_dates(end: str, days: int) -> List[str]:
+    """Approximate trading days ending at ``end`` (skips weekends; mock only)."""
+    out: List[str] = []
+    cur = datetime.strptime(end, "%Y-%m-%d")
+    while len(out) < days:
+        if cur.weekday() < 5:  # Mon-Fri
+            out.append(cur.strftime("%Y-%m-%d"))
+        cur -= timedelta(days=1)
+    return list(reversed(out))
+
+
+def mock_macro(end: str, days: int = 120) -> pd.DataFrame:
+    """Synthetic cross-asset macro panel ending at ``end``.
+
+    Long format: date, series, value. Deterministic per series.
+    """
+    dates = _trading_dates(end, days)
+    rows: List[Dict] = []
+    for series, base in MACRO_SERIES.items():
+        rng = np.random.default_rng(_seed(series, "macro"))
+        level = base
+        for d in dates:
+            # gentle random walk; rates move in smaller steps
+            step = rng.normal(0, 0.004 if series not in ("US10Y", "CN10Y") else 0.01)
+            level = max(0.01, level * (1 + step)) if base > 20 else max(0.01, level + step)
+            rows.append({"date": d, "series": series, "value": round(float(level), 4)})
+    return pd.DataFrame(rows)
+
+
+def mock_index(code: str, end: str, days: int = 120) -> pd.DataFrame:
+    """Synthetic benchmark index daily close ending at ``end``.
+
+    Columns: date, close. ``code`` is the index code (e.g. 000985 中证全指).
+    """
+    dates = _trading_dates(end, days)
+    rng = np.random.default_rng(_seed(code, "index"))
+    closes = [3000.0]
+    for _ in range(len(dates) - 1):
+        closes.append(max(1.0, closes[-1] * (1 + rng.normal(0.0003, 0.012))))
+    return pd.DataFrame({"date": dates, "close": np.round(closes, 2)})

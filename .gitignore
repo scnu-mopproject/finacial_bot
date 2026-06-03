@@ -13,6 +13,8 @@ env/
 data/raw/
 data/processed/
 data/cache/
+data/warehouse/
+data/datasets/
 artifacts/
 *.parquet
 *.csv

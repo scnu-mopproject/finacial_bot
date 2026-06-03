@@ -5,5 +5,6 @@ provider when available and otherwise a deterministic mock provider so the
 pipeline always runs.
 """
 from .provider import DataProvider, get_provider
+from .warehouse import Warehouse
 
-__all__ = ["DataProvider", "get_provider"]
+__all__ = ["DataProvider", "get_provider", "Warehouse"]

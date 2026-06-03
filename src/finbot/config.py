@@ -26,6 +26,10 @@ _DEFAULTS: Dict[str, Any] = {
         "cache_dir": "data/cache",
         "raw_dir": "data/raw",
         "processed_dir": "data/processed",
+        "warehouse_dir": "data/warehouse",
+        "benchmark": "000985",          # 中证全指 as the relative-return benchmark
+        "history_days": 250,            # initial backfill depth
+        "incremental_days": 10,         # catch-up depth on subsequent updates
         "universe": {
             "exclude_st": True,
             "exclude_new_ipo_days": 60,
@@ -42,10 +46,11 @@ _DEFAULTS: Dict[str, Any] = {
     },
     "model": {
         "type": "lightgbm",
-        "task": "rank_limitup_probability",
+        "task": "rank_forward_return",   # redesign: cross-sectional forward-return ranking
         "store_dir": "models_store",
         "top_n": 20,
         "min_score": 0.15,
+        "holding_period_days": 5,        # H: forward-return horizon (weekly)
     },
     "strategy": {
         "portfolio_file": "config/portfolio.json",
@@ -57,6 +62,11 @@ _DEFAULTS: Dict[str, Any] = {
             "max_total_exposure": 0.90,
         },
         "style": "balanced",
+        "rebalance_days": 5,             # weekly rebalance (≈ H)
+        "n_holdings": 12,                # target basket size (8-15)
+        "enter_pct": 0.15,               # buy if ranked in top 15%
+        "hold_pct": 0.30,                # keep holding until out of top 30% (hysteresis)
+        "max_turnover": 0.30,            # cap per-rebalance turnover
     },
     "report": {"output_dir": "reports", "format": "markdown"},
     "llm": {"model": "claude-opus-4-8"},
