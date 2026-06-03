@@ -67,6 +67,26 @@ def cmd_update(args) -> int:
     return 0
 
 
+def cmd_build_dataset(args) -> int:
+    """Build the labelled forward-return panel from the warehouse (design §6 / M2)."""
+    from .data import Warehouse
+    from .labels import build_dataset
+
+    cfg, _ = _resolve(args)
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    h = args.h or int(cfg.get("model.holding_period_days", 5))
+    panel = build_dataset(wh, h=h, out_dir=str(cfg.path("data.warehouse_dir").parent / "datasets"))
+    summary = {
+        "horizon_h": h,
+        "labelled_rows": int(len(panel)),
+        "date_range": [str(panel["date"].min()), str(panel["date"].max())] if not panel.empty else [],
+        "excess_ret_mean": float(panel["excess_ret"].mean()) if not panel.empty else None,
+        "note": "label = forward H-day excess return vs benchmark; T+1 entry, no look-ahead.",
+    }
+    _print_json(summary)
+    return 0
+
+
 def cmd_crawl(args) -> int:
     cfg, date = _resolve(args)
     out = pipeline.stage_crawl(date, cfg)
@@ -117,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_update)
     p_update.add_argument("--status", action="store_true", help="只显示仓库现状，不拉取")
     p_update.set_defaults(func=cmd_update)
+
+    p_ds = sub.add_parser("build-dataset", help="从数据仓库构建前瞻收益标签面板（用于训练/回测）")
+    _add_common(p_ds)
+    p_ds.add_argument("--h", type=int, default=None, help="持有期/前瞻天数 H（默认取配置，5）")
+    p_ds.set_defaults(func=cmd_build_dataset)
 
     p_crawl = sub.add_parser("crawl", help="爬取行情快照 + 财经新闻")
     _add_common(p_crawl)
