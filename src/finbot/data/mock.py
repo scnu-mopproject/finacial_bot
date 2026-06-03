@@ -72,12 +72,12 @@ def mock_universe(date: str) -> pd.DataFrame:
 def mock_history(code: str, date: str, days: int = 120) -> pd.DataFrame:
     """Return a synthetic daily OHLCV history ending at ``date``."""
     rng = np.random.default_rng(_seed(code, "hist"))
-    end = datetime.strptime(date, "%Y-%m-%d")
     base = 20 + (int(code[-3:]) % 200)
+    # Use trading days (weekdays) so bars align with the macro panel.
+    dates = _trading_dates(date, days)
     closes = [base]
     for _ in range(days - 1):
         closes.append(max(1.0, closes[-1] * (1 + rng.normal(0.001, 0.025))))
-    dates = [(end - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d") for i in range(days)]
     closes = np.array(closes)
     df = pd.DataFrame(
         {

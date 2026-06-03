@@ -68,22 +68,48 @@ def cmd_update(args) -> int:
 
 
 def cmd_build_dataset(args) -> int:
-    """Build the labelled forward-return panel from the warehouse (design §6 / M2)."""
+    """Build the labelled factor panel from the warehouse (design §5+§6 / M2+M3)."""
     from .data import Warehouse
+    from .features.registry import build_factor_panel
     from .labels import build_dataset
 
     cfg, _ = _resolve(args)
     wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
     h = args.h or int(cfg.get("model.holding_period_days", 5))
-    panel = build_dataset(wh, h=h, out_dir=str(cfg.path("data.warehouse_dir").parent / "datasets"))
+    features = None if args.labels_only else build_factor_panel(wh)
+    panel = build_dataset(wh, h=h, features=features,
+                          out_dir=str(cfg.path("data.warehouse_dir").parent / "datasets"))
+    feat_cols = [c for c in panel.columns if c not in
+                 ("date", "code", "sector", "fwd_ret", "bench_fwd_ret", "excess_ret")]
     summary = {
         "horizon_h": h,
         "labelled_rows": int(len(panel)),
+        "n_factor_cols": len(feat_cols),
         "date_range": [str(panel["date"].min()), str(panel["date"].max())] if not panel.empty else [],
         "excess_ret_mean": float(panel["excess_ret"].mean()) if not panel.empty else None,
-        "note": "label = forward H-day excess return vs benchmark; T+1 entry, no look-ahead.",
+        "note": "factors neutralized; label = forward H-day excess return; T+1, no look-ahead.",
     }
     _print_json(summary)
+    return 0
+
+
+def cmd_factors(args) -> int:
+    """Inspect the factor catalog or compute the latest neutralized factor panel."""
+    from .data import Warehouse
+    from .features.registry import build_factor_panel, registry_view
+
+    cfg, _ = _resolve(args)
+    if args.catalog:
+        _print_json(registry_view().to_dict(orient="records"))
+        return 0
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    panel = build_factor_panel(wh)
+    if panel.empty:
+        _print_json({"error": "empty factor panel; run `finbot update` first"})
+        return 1
+    last = panel[panel["date"] == panel["date"].max()]
+    _print_json({"date": str(panel["date"].max()), "n_stocks": int(len(last)),
+                 "factors": [c for c in panel.columns if c not in ("date", "code", "sector")]})
     return 0
 
 
@@ -138,10 +164,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--status", action="store_true", help="只显示仓库现状，不拉取")
     p_update.set_defaults(func=cmd_update)
 
-    p_ds = sub.add_parser("build-dataset", help="从数据仓库构建前瞻收益标签面板（用于训练/回测）")
+    p_ds = sub.add_parser("build-dataset", help="构建带因子的前瞻收益面板（因子+标签，用于训练/回测）")
     _add_common(p_ds)
     p_ds.add_argument("--h", type=int, default=None, help="持有期/前瞻天数 H（默认取配置，5）")
+    p_ds.add_argument("--labels-only", action="store_true", help="只建标签，不算因子")
     p_ds.set_defaults(func=cmd_build_dataset)
+
+    p_fac = sub.add_parser("factors", help="查看因子目录(--catalog)或计算最新中性化因子面板")
+    _add_common(p_fac)
+    p_fac.add_argument("--catalog", action="store_true", help="只打印因子目录与经济逻辑")
+    p_fac.set_defaults(func=cmd_factors)
 
     p_crawl = sub.add_parser("crawl", help="爬取行情快照 + 财经新闻")
     _add_common(p_crawl)
