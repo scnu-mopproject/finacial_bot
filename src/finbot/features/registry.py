@@ -205,6 +205,30 @@ def build_factor_panel(
     return panel
 
 
+# Composite sign per factor for the transparent baseline score: alpha factors
+# enter with their documented direction; cross-asset (beta×trend) is already
+# oriented so it enters +1; pure controls (size) are excluded.
+_COMPOSITE_SIGN: Dict[str, int] = {
+    name: (1 if spec.family == "cross_asset" else spec.direction)
+    for name, spec in FACTOR_REGISTRY.items()
+    if spec.direction != 0 or spec.family == "cross_asset"
+}
+
+
+def composite_score(panel: pd.DataFrame) -> pd.Series:
+    """Transparent equal-weight baseline score = Σ sign·factor over alpha factors.
+
+    Used as the default ranking signal before a model is trained (and as a
+    backtest baseline). Factors absent/NaN (e.g. value/quality under mock)
+    contribute nothing.
+    """
+    score = pd.Series(0.0, index=panel.index)
+    for name, sign in _COMPOSITE_SIGN.items():
+        if name in panel.columns:
+            score = score + sign * panel[name].fillna(0.0)
+    return score
+
+
 def registry_view() -> pd.DataFrame:
     """Tabular view of the factor catalog (for docs / the analyze-market skill)."""
     return pd.DataFrame(

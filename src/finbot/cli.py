@@ -113,6 +113,31 @@ def cmd_factors(args) -> int:
     return 0
 
 
+def cmd_backtest(args) -> int:
+    """Walk-forward backtest + factor validation (design §8 / M4)."""
+    from .data import Warehouse
+    from .features.registry import build_factor_panel, composite_score
+    from .labels import attach_labels, forward_returns
+    from .backtest import backtest_signal
+
+    cfg, _ = _resolve(args)
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    h = args.h or int(cfg.get("model.holding_period_days", 5))
+    panel = build_factor_panel(wh)
+    if panel.empty:
+        _print_json({"error": "empty factor panel; run `finbot update` first"})
+        return 1
+    panel["score"] = composite_score(panel)             # transparent baseline signal
+    panel = attach_labels(panel, forward_returns(wh, h=h))
+    result = backtest_signal(
+        panel, wh=wh,
+        n_holdings=int(cfg.get("strategy.n_holdings", 12)),
+        rebalance_days=int(cfg.get("strategy.rebalance_days", 5)),
+    )
+    _print_json(result)
+    return 0
+
+
 def cmd_crawl(args) -> int:
     cfg, date = _resolve(args)
     out = pipeline.stage_crawl(date, cfg)
@@ -174,6 +199,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_fac)
     p_fac.add_argument("--catalog", action="store_true", help="只打印因子目录与经济逻辑")
     p_fac.set_defaults(func=cmd_factors)
+
+    p_bt = sub.add_parser("backtest", help="walk-forward 回测 + 因子验证(IC/分层/含摩擦净值)")
+    _add_common(p_bt)
+    p_bt.add_argument("--h", type=int, default=None, help="持有期 H（默认取配置，5）")
+    p_bt.set_defaults(func=cmd_backtest)
 
     p_crawl = sub.add_parser("crawl", help="爬取行情快照 + 财经新闻")
     _add_common(p_crawl)
