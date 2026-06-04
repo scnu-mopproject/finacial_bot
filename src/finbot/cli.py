@@ -256,6 +256,18 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_speculate(args) -> int:
+    """Speculative limit-up watch — DEMOTED, sentiment reference only (design §12)."""
+    from .data import Warehouse
+    from .speculate import speculative_watch, RISK_LABEL
+
+    cfg, _ = _resolve(args)
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    watch = speculative_watch(wh, top_n=args.top or 15)
+    _print_json({"risk_label": RISK_LABEL, "watch": watch.to_dict(orient="records")})
+    return 0
+
+
 def cmd_regime(args) -> int:
     """Classify the market regime (design §10)."""
     from .data import Warehouse
@@ -327,6 +339,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_strat)
     p_strat.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
     p_strat.set_defaults(func=cmd_strategy)
+
+    p_spec = sub.add_parser("speculate", help="(降级)高风险投机涨停观察池，仅作情绪参考")
+    _add_common(p_spec)
+    p_spec.add_argument("--top", type=int, default=None, help="返回前 N 名")
+    p_spec.set_defaults(func=cmd_speculate)
 
     p_regime = sub.add_parser("regime", help="判定市场状态(risk-on/neutral/risk-off)与板块倾斜")
     _add_common(p_regime)
