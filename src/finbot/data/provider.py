@@ -237,16 +237,38 @@ class TushareProvider(DataProvider):
 
     def _basics(self) -> pd.DataFrame:
         if self._basic_cache is None:
-            self._basic_cache = self.pro.stock_basic(
-                exchange="", list_status="L", fields="ts_code,symbol,name,industry"
-            )
+            try:
+                self._basic_cache = self.pro.stock_basic(
+                    exchange="", list_status="L", fields="ts_code,symbol,name,industry"
+                )
+            except Exception as exc:  # noqa: BLE001 - permission-gated; degrade
+                log.warning("tushare stock_basic unavailable (%s); no name/sector", exc)
+                self._basic_cache = pd.DataFrame(columns=["ts_code", "symbol", "name", "industry"])
         return self._basic_cache
 
     # -- bulk helpers used by the warehouse fast path --------------------
     def trading_dates(self, start: str, end: str):
-        cal = self.pro.trade_cal(start_date=start.replace("-", ""), end_date=end.replace("-", ""))
-        cal = cal[cal["is_open"] == 1].sort_values("cal_date")
-        return [f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in cal["cal_date"].astype(str)]
+        # Avoid trade_cal (often permission-gated). Derive the calendar from a
+        # liquid reference stock's daily bars — only needs the `daily` interface.
+        import datetime as _dt
+
+        try:
+            df = self.pro.daily(ts_code="000001.SZ",
+                                start_date=start.replace("-", ""), end_date=end.replace("-", ""))
+            ds = sorted(df["trade_date"].astype(str))
+            if ds:
+                return [f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in ds]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("tushare daily-calendar failed (%s); using weekdays", exc)
+        # last resort: weekdays in range (akshare-free, offline-safe)
+        s = _dt.datetime.strptime(start, "%Y-%m-%d")
+        e = _dt.datetime.strptime(end, "%Y-%m-%d")
+        out, cur = [], s
+        while cur <= e:
+            if cur.weekday() < 5:
+                out.append(cur.strftime("%Y-%m-%d"))
+            cur += _dt.timedelta(days=1)
+        return out
 
     def daily_bars(self, date: str) -> pd.DataFrame:
         """Whole-market OHLCV for one trade date (one API call)."""
@@ -262,21 +284,33 @@ class TushareProvider(DataProvider):
     def universe(self, date: str) -> pd.DataFrame:
         def _real() -> pd.DataFrame:
             d = date.replace("-", "")
-            daily = self.pro.daily(trade_date=d)
-            db = self.pro.daily_basic(trade_date=d, fields="ts_code,turnover_rate")
+            daily = self.pro.daily(trade_date=d)            # essential (daily interface)
+            daily["code"] = daily["ts_code"].str.split(".").str[0]
+            daily["pct_chg"] = pd.to_numeric(daily["pct_chg"], errors="coerce")
+            daily["amount_yi"] = pd.to_numeric(daily["amount"], errors="coerce") / 1e5  # 千元->亿元
+            out = daily[["code", "ts_code", "close", "pct_chg", "amount_yi"]].copy()
+
+            # optional: name / sector from stock_basic
             basic = self._basics()
-            m = daily.merge(basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
-            m = m.merge(db, on="ts_code", how="left")
-            m["code"] = m["ts_code"].str.split(".").str[0]
-            m["sector"] = m["industry"].fillna("")
-            m["amount_yi"] = pd.to_numeric(m["amount"], errors="coerce") / 1e5  # 千元 -> 亿元
-            m["pct_chg"] = pd.to_numeric(m["pct_chg"], errors="coerce")
-            m["turnover_rate"] = pd.to_numeric(m["turnover_rate"], errors="coerce")
-            m["is_st"] = m["name"].astype(str).str.contains("ST", na=False)
-            m["limit_up"] = m["pct_chg"] >= 9.8
+            out = out.merge(basic[["ts_code", "name", "industry"]], on="ts_code", how="left") \
+                if not basic.empty else out.assign(name="", industry="")
+
+            # optional: turnover from daily_basic (permission-gated; best-effort)
+            try:
+                db = self.pro.daily_basic(trade_date=d, fields="ts_code,turnover_rate")
+                out = out.merge(db, on="ts_code", how="left")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("tushare daily_basic unavailable (%s); turnover=NaN", exc)
+                out["turnover_rate"] = float("nan")
+
+            out["name"] = out.get("name", "").fillna("")
+            out["sector"] = out.get("industry", "").fillna("")
+            out["turnover_rate"] = pd.to_numeric(out.get("turnover_rate"), errors="coerce")
+            out["is_st"] = out["name"].astype(str).str.contains("ST", na=False)
+            out["limit_up"] = out["pct_chg"] >= 9.8
             cols = ["code", "name", "sector", "close", "pct_chg",
                     "amount_yi", "turnover_rate", "is_st", "limit_up"]
-            return m[cols].dropna(subset=["code"]).reset_index(drop=True)
+            return out[cols].dropna(subset=["code"]).reset_index(drop=True)
 
         return self._retry(_real, lambda: self._mock.universe(date))
 
