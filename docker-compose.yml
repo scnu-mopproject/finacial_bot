@@ -1,0 +1,28 @@
+# finbot deployment — run the daily job on demand (drive scheduling via host cron):
+#   docker compose run --rm finbot                 # today
+#   docker compose run --rm -e FINBOT_DATE=2026-06-02 finbot
+#
+# Persisted state lives on the host via the volume mounts below. The data
+# warehouse is the valuable incremental state — back it up.
+
+services:
+  finbot:
+    build: .
+    image: finbot:latest
+    env_file:
+      - .env                      # secrets / channel config (never committed)
+    environment:
+      TZ: Asia/Shanghai
+      FINBOT_SOURCE: akshare      # akshare | mock
+      FINBOT_WITH_LLM: "1"        # set to "0" to skip the Claude briefing
+    volumes:
+      - ./config:/app/config:ro            # config.yaml + portfolio.json (read-only)
+      - finbot_data:/app/data              # warehouse / datasets (persistent!)
+      - ./reports:/app/reports             # output reports
+      - finbot_models:/app/models_store    # trained models (optional)
+    # Container exits when the job finishes — this is a batch job, not a service.
+    restart: "no"
+
+volumes:
+  finbot_data:
+  finbot_models:

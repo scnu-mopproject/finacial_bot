@@ -93,10 +93,13 @@ finbot run            # 真实数据（需联网 + akshare），默认今天
 - 模型：`LightGBM` 排序；未训练时回退**透明的因子合成分**，开箱即用。
 - 训练：`finbot train` 走 walk-forward，报告样本外 Rank IC。
 
-## 定时运行
+## 定时运行 / 部署
 
 - 本地：`python scripts/daily_run.py --once`（配合系统 cron）。
 - GitHub Actions：`.github/workflows/daily-briefing.yml`（交易日收盘后，默认 mock，可切 akshare）。
+- **独立服务器（推荐）**：Docker + cron 的无人值守部署，含交易日守卫、Claude 智能体简报
+  （`scripts/briefing_llm.py`）、以及企业微信/Server酱/Telegram 推送（`scripts/notify.py`）。
+  完整步骤见 **[`docs/DEPLOY.md`](docs/DEPLOY.md)**；一键日任务入口 `scripts/daily_job.py`。
 
 ## 目录结构
 

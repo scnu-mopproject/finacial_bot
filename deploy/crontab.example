@@ -1,0 +1,7 @@
+# finbot daily job — host crontab (times are server local time; set server to Asia/Shanghai).
+# Install:  crontab deploy/crontab.example   (edit the path first)
+# A-share closes 15:00 CST; run at 15:40 on weekdays. The job itself also skips
+# non-trading days via the trade-calendar guard.
+
+CRON_TZ=Asia/Shanghai
+40 15 * * 1-5 cd /srv/finbot && /usr/bin/docker compose run --rm finbot >> /srv/finbot/logs/daily.log 2>&1
