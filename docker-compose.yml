@@ -23,6 +23,24 @@ services:
     # Container exits when the job finishes — this is a batch job, not a service.
     restart: "no"
 
+    # --- Resource isolation (coexist safely with other containers) ---
+    # Hard caps so finbot can never starve a co-located service (e.g. an app
+    # backend) during the memory-heavy first backfill. If finbot exceeds these it
+    # is OOM-killed in isolation; neighbours are unaffected. Tune for your host —
+    # on a 4GB box, ~2g leaves headroom for the rest.
+    mem_limit: 2g
+    memswap_limit: 2g          # = mem_limit -> no swap blow-up
+    cpus: 2.0                  # at most 2 cores (of 4)
+    pids_limit: 256
+    # Be a low-priority neighbour for CPU when the host is busy.
+    cpu_shares: 512
+    networks:
+      - finbot_net             # own network; not attached to other stacks
+
+networks:
+  finbot_net:
+    driver: bridge
+
 volumes:
   finbot_data:
   finbot_models:
