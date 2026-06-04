@@ -124,18 +124,33 @@ class Warehouse:
                 if c in basic.columns]
         counts["daily_basic"] = len(self._merge("daily_basic", basic[keep]))
 
-        # daily_bar: per-stock OHLCV history (the expensive call; cheap once cached)
-        bars: List[pd.DataFrame] = []
-        for code in universe["code"]:
-            h = provider.history(code, asof, days=days)
-            if h is None or h.empty:
-                continue
-            h = h.copy()
-            h["code"] = code
-            bars.append(h)
-        if bars:
-            bar_df = pd.concat(bars, ignore_index=True)
-            counts["daily_bar"] = len(self._merge("daily_bar", bar_df))
+        # daily_bar: prefer a bulk by-trade-date fetch when the provider supports
+        # it (Tushare) — one call per day for the whole market, rate-limit friendly.
+        # Otherwise fall back to a per-stock history loop (AkShare / mock).
+        if hasattr(provider, "daily_bars") and hasattr(provider, "trading_dates"):
+            import datetime as _dt
+
+            start = (_dt.datetime.strptime(asof, "%Y-%m-%d")
+                     - _dt.timedelta(days=days * 2 + 15)).strftime("%Y-%m-%d")
+            tdates = list(provider.trading_dates(start, asof))[-days:]
+            frames = []
+            for d in tdates:
+                bd = provider.daily_bars(d)
+                if bd is not None and not bd.empty:
+                    frames.append(bd)
+            if frames:
+                counts["daily_bar"] = len(self._merge("daily_bar", pd.concat(frames, ignore_index=True)))
+        else:
+            bars: List[pd.DataFrame] = []
+            for code in universe["code"]:
+                h = provider.history(code, asof, days=days)
+                if h is None or h.empty:
+                    continue
+                h = h.copy()
+                h["code"] = code
+                bars.append(h)
+            if bars:
+                counts["daily_bar"] = len(self._merge("daily_bar", pd.concat(bars, ignore_index=True)))
 
         # index_bar: benchmark
         idx = provider.index_bars(self.benchmark, asof, days=days).copy()

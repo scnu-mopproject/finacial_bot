@@ -32,7 +32,7 @@ def _print_json(obj) -> None:
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--date", default=None, help="trading date YYYY-MM-DD (default: today)")
     p.add_argument("--config", default=None, help="path to an extra config file to overlay")
-    p.add_argument("--source", default=None, choices=["akshare", "mock"], help="override data source")
+    p.add_argument("--source", default=None, choices=["akshare", "tushare", "mock"], help="override data source")
 
 
 def _resolve(args):

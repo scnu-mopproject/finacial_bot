@@ -4,7 +4,9 @@
 market: A_SHARE          # currently only A-share is supported
 
 data:
-  source: akshare        # akshare | mock
+  # akshare = free web scraping (often blocked on cloud IPs);
+  # tushare = token API (recommended on servers, set TUSHARE_TOKEN env); mock = offline.
+  source: akshare        # akshare | tushare | mock
   # When akshare is unavailable or fails, the pipeline falls back to deterministic
   # mock data so the end-to-end skeleton always runs.
   fallback_to_mock: true

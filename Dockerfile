@@ -21,7 +21,7 @@ COPY . /app
 # Core package + real data source + model + parquet + Claude SDK (agent layer).
 RUN pip install --upgrade pip \
     && pip install -e . \
-    && pip install akshare lightgbm pyarrow anthropic
+    && pip install akshare tushare lightgbm pyarrow anthropic
 
 # The daily job: trading-day guard -> update -> run -> (LLM) -> notify.
 ENTRYPOINT ["python", "scripts/daily_job.py"]

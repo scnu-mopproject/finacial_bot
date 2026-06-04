@@ -186,10 +186,146 @@ class AkShareProvider(DataProvider):
         return self._guard(_real, lambda: self._mock.index_bars(code, date, days))
 
 
-def get_provider(source: str = "akshare", fallback_to_mock: bool = True) -> DataProvider:
+class TushareProvider(DataProvider):
+    """Tushare Pro provider — token-based API, friendly to datacenter IPs.
+
+    Recommended for server deployments: AkShare scrapes web endpoints that often
+    block cloud IPs, whereas Tushare is a proper data API. Backfill is done
+    by-trade-date (one call returns the whole market for a day) via ``daily_bars``
+    + ``trading_dates``, which the warehouse uses to stay within rate limits.
+
+    Macro/news need higher Tushare points, so they degrade to mock for now.
+    """
+
+    name = "tushare"
+
+    def __init__(self, token: Optional[str] = None, fallback_to_mock: bool = True):
+        import os
+        import tushare as ts
+
+        token = token or os.environ.get("TUSHARE_TOKEN")
+        if not token:
+            raise ValueError("TUSHARE_TOKEN not set (env or config data.tushare_token)")
+        self.pro = ts.pro_api(token)
+        self.fallback = fallback_to_mock
+        self._mock = MockProvider()
+        self._basic_cache = None
+
+    @staticmethod
+    def _ts_code(code: str) -> str:
+        c = str(code).zfill(6)
+        if c.startswith("6"):
+            return c + ".SH"
+        if c.startswith(("0", "3")):
+            return c + ".SZ"
+        return c + ".BJ"
+
+    def _retry(self, fn, fallback_fn, tries: int = 3, base_sleep: float = 1.0):
+        import time
+
+        last = None
+        for i in range(tries):
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001 - retry on rate limit / transient
+                last = exc
+                time.sleep(base_sleep * (i + 1))
+        if self.fallback:
+            log.warning("tushare call failed (%s); using mock fallback", last)
+            return fallback_fn()
+        raise last  # type: ignore[misc]
+
+    def _basics(self) -> pd.DataFrame:
+        if self._basic_cache is None:
+            self._basic_cache = self.pro.stock_basic(
+                exchange="", list_status="L", fields="ts_code,symbol,name,industry"
+            )
+        return self._basic_cache
+
+    # -- bulk helpers used by the warehouse fast path --------------------
+    def trading_dates(self, start: str, end: str):
+        cal = self.pro.trade_cal(start_date=start.replace("-", ""), end_date=end.replace("-", ""))
+        cal = cal[cal["is_open"] == 1].sort_values("cal_date")
+        return [f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in cal["cal_date"].astype(str)]
+
+    def daily_bars(self, date: str) -> pd.DataFrame:
+        """Whole-market OHLCV for one trade date (one API call)."""
+        def _real() -> pd.DataFrame:
+            df = self.pro.daily(trade_date=date.replace("-", "")).rename(columns={"vol": "volume"})
+            df["code"] = df["ts_code"].str.split(".").str[0]
+            df["date"] = date
+            return df[["date", "code", "open", "high", "low", "close", "volume"]]
+
+        return self._retry(_real, lambda: pd.DataFrame())
+
+    # -- DataProvider interface -----------------------------------------
+    def universe(self, date: str) -> pd.DataFrame:
+        def _real() -> pd.DataFrame:
+            d = date.replace("-", "")
+            daily = self.pro.daily(trade_date=d)
+            db = self.pro.daily_basic(trade_date=d, fields="ts_code,turnover_rate")
+            basic = self._basics()
+            m = daily.merge(basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
+            m = m.merge(db, on="ts_code", how="left")
+            m["code"] = m["ts_code"].str.split(".").str[0]
+            m["sector"] = m["industry"].fillna("")
+            m["amount_yi"] = pd.to_numeric(m["amount"], errors="coerce") / 1e5  # 千元 -> 亿元
+            m["pct_chg"] = pd.to_numeric(m["pct_chg"], errors="coerce")
+            m["turnover_rate"] = pd.to_numeric(m["turnover_rate"], errors="coerce")
+            m["is_st"] = m["name"].astype(str).str.contains("ST", na=False)
+            m["limit_up"] = m["pct_chg"] >= 9.8
+            cols = ["code", "name", "sector", "close", "pct_chg",
+                    "amount_yi", "turnover_rate", "is_st", "limit_up"]
+            return m[cols].dropna(subset=["code"]).reset_index(drop=True)
+
+        return self._retry(_real, lambda: self._mock.universe(date))
+
+    def history(self, code: str, date: str, days: int = 120) -> pd.DataFrame:
+        import datetime as _dt
+
+        def _real() -> pd.DataFrame:
+            end = date.replace("-", "")
+            start = (_dt.datetime.strptime(date, "%Y-%m-%d")
+                     - _dt.timedelta(days=days * 2 + 15)).strftime("%Y%m%d")
+            df = self.pro.daily(ts_code=self._ts_code(code), start_date=start, end_date=end)
+            df = df.sort_values("trade_date").tail(days).rename(columns={"vol": "volume"})
+            df["date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
+            return df[["date", "open", "high", "low", "close", "volume"]]
+
+        return self._retry(_real, lambda: self._mock.history(code, date, days))
+
+    def index_bars(self, code: str, date: str, days: int = 120) -> pd.DataFrame:
+        def _real() -> pd.DataFrame:
+            ts_code = code if "." in code else code + (".CSI" if code.startswith("000") else ".SH")
+            df = self.pro.index_daily(ts_code=ts_code, end_date=date.replace("-", ""))
+            df = df.sort_values("trade_date").tail(days)
+            df["date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
+            return df[["date", "close"]]
+
+        return self._retry(_real, lambda: self._mock.index_bars(code, date, days))
+
+    def macro(self, date: str, days: int = 120) -> pd.DataFrame:
+        # Cross-asset macro needs higher Tushare points; degrade to mock for now.
+        return self._mock.macro(date, days)
+
+    def news(self, date: str) -> pd.DataFrame:
+        # Tushare news needs higher points; degrade to mock for now.
+        return self._mock.news(date)
+
+
+def get_provider(source: str = "akshare", fallback_to_mock: bool = True,
+                 token: Optional[str] = None) -> DataProvider:
     """Factory used by the pipeline / CLI."""
     if source == "mock":
         return MockProvider()
+    if source == "tushare":
+        try:
+            return TushareProvider(token=token, fallback_to_mock=fallback_to_mock)
+        except Exception as exc:  # noqa: BLE001 - no token / tushare not installed
+            if fallback_to_mock:
+                log.warning("tushare unavailable (%s); using mock provider", exc)
+                return MockProvider()
+            raise
     if source == "akshare":
         try:
             return AkShareProvider(fallback_to_mock=fallback_to_mock)
