@@ -6,11 +6,11 @@ summary to stdout (so an Agent can parse it) and writes richer artifacts under
 
 Examples
 --------
-    finbot crawl     --date 2026-06-02
-    finbot features  --date 2026-06-02
-    finbot predict   --date 2026-06-02 --top 20
-    finbot strategy  --date 2026-06-02 --portfolio config/portfolio.json
-    finbot run       --date 2026-06-02          # full pipeline + report
+    finbot update     --date 2026-06-02                 # refresh local warehouse
+    finbot factors    --catalog                         # factor catalog
+    finbot backtest   --date 2026-06-02                 # IC / quantiles / net perf
+    finbot construct  --date 2026-06-02 --portfolio config/portfolio.json
+    finbot run        --date 2026-06-02                 # full pipeline + report
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from typing import Optional
 from . import __version__
 from .config import load_config
 from . import pipeline
-from .strategy import Portfolio
 
 
 def _print_json(obj) -> None:
@@ -211,39 +210,6 @@ def cmd_backtest(args) -> int:
     return 0
 
 
-def cmd_crawl(args) -> int:
-    cfg, date = _resolve(args)
-    out = pipeline.stage_crawl(date, cfg)
-    _print_json({k: v for k, v in out.items() if k not in ("news", "universe_preview")})
-    return 0
-
-
-def cmd_features(args) -> int:
-    cfg, date = _resolve(args)
-    feats = pipeline.stage_features(date, cfg)
-    _print_json({"date": date, "n_rows": int(len(feats)), "columns": list(feats.columns)})
-    return 0
-
-
-def cmd_predict(args) -> int:
-    cfg, date = _resolve(args)
-    if args.top:
-        cfg.raw.setdefault("model", {})["top_n"] = args.top
-    candidates = pipeline.stage_predict(date, cfg)
-    _print_json({"date": date, "candidates": candidates.to_dict(orient="records")})
-    return 0
-
-
-def cmd_strategy(args) -> int:
-    cfg, date = _resolve(args)
-    portfolio: Optional[Portfolio] = None
-    if args.portfolio:
-        portfolio = Portfolio.from_file(args.portfolio)
-    plan = pipeline.stage_strategy(date, cfg, portfolio=portfolio)
-    _print_json(plan)
-    return 0
-
-
 def cmd_run(args) -> int:
     """Full end-to-end portfolio flow (design §3-§10): warehouse -> factors ->
     rank -> regime -> target portfolio -> rebalance orders -> report."""
@@ -276,12 +242,6 @@ def cmd_regime(args) -> int:
     cfg, _ = _resolve(args)
     wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
     _print_json(regime_mod.classify(wh))
-    return 0
-
-
-def cmd_run_legacy(args) -> int:
-    cfg, date = _resolve(args)
-    _print_json(pipeline.run_daily(date, cfg))
     return 0
 
 
@@ -322,24 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--h", type=int, default=None, help="持有期 H（默认取配置，5）")
     p_bt.set_defaults(func=cmd_backtest)
 
-    p_crawl = sub.add_parser("crawl", help="爬取行情快照 + 财经新闻")
-    _add_common(p_crawl)
-    p_crawl.set_defaults(func=cmd_crawl)
-
-    p_feat = sub.add_parser("features", help="构建特征矩阵")
-    _add_common(p_feat)
-    p_feat.set_defaults(func=cmd_features)
-
-    p_pred = sub.add_parser("predict", help="运行模型，输出涨停概率候选榜")
-    _add_common(p_pred)
-    p_pred.add_argument("--top", type=int, default=None, help="返回前 N 名")
-    p_pred.set_defaults(func=cmd_predict)
-
-    p_strat = sub.add_parser("strategy", help="结合实仓与风控生成策略")
-    _add_common(p_strat)
-    p_strat.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
-    p_strat.set_defaults(func=cmd_strategy)
-
     p_spec = sub.add_parser("speculate", help="(降级)高风险投机涨停观察池，仅作情绪参考")
     _add_common(p_spec)
     p_spec.add_argument("--top", type=int, default=None, help="返回前 N 名")
@@ -353,10 +295,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_run)
     p_run.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
     p_run.set_defaults(func=cmd_run)
-
-    p_legacy = sub.add_parser("run-legacy", help="(弃用)旧涨停链路，M9 将移除")
-    _add_common(p_legacy)
-    p_legacy.set_defaults(func=cmd_run_legacy)
 
     return parser
 

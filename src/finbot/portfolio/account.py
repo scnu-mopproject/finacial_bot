@@ -1,17 +1,76 @@
-"""Account reconciliation: target weights -> concrete rebalance orders (design §9 / §9B).
+"""Account model + reconciliation: target weights -> rebalance orders (design §9 / §9B).
 
-Compares the constructed target portfolio against the user's live holdings and
-emits the buy/sell/trim/add order list they actually execute (at next-day open,
-respecting T+1). Reuses the Portfolio/Position model.
+Owns the live-holdings model (Portfolio/Position) and compares a constructed
+target portfolio against current holdings, emitting the buy/sell/trim/add order
+list the user executes at next-day open (respecting T+1).
 """
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
-# Reuse the existing account model (consolidated in M9).
-from ..strategy.portfolio import Portfolio, Position
-
 MIN_TRADE_VALUE = 1000.0  # skip dust trades
+
+
+@dataclass
+class Position:
+    code: str
+    name: str
+    shares: float
+    cost_price: float
+    current_price: float
+
+    @property
+    def market_value(self) -> float:
+        return self.shares * self.current_price
+
+    @property
+    def pnl_pct(self) -> float:
+        if self.cost_price <= 0:
+            return 0.0
+        return self.current_price / self.cost_price - 1.0
+
+
+@dataclass
+class Portfolio:
+    cash: float = 0.0
+    positions: List[Position] = field(default_factory=list)
+    risk_tolerance: str = "balanced"
+    realized_pnl_ytd: float = 0.0
+
+    @property
+    def equity(self) -> float:
+        return self.cash + sum(p.market_value for p in self.positions)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "Portfolio":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Portfolio":
+        positions = [
+            Position(
+                code=str(p["code"]),
+                name=p.get("name", ""),
+                shares=float(p["shares"]),
+                cost_price=float(p["cost_price"]),
+                current_price=float(p.get("current_price", p["cost_price"])),
+            )
+            for p in data.get("positions", [])
+        ]
+        return cls(
+            cash=float(data.get("cash", 0.0)),
+            positions=positions,
+            risk_tolerance=data.get("risk_tolerance", "balanced"),
+            realized_pnl_ytd=float(data.get("realized_pnl_ytd", 0.0)),
+        )
+
+    @classmethod
+    def empty(cls, cash: float = 100000.0) -> "Portfolio":
+        return cls(cash=cash)
 
 
 def rebalance_orders(

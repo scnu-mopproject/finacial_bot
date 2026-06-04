@@ -2,11 +2,14 @@
 
 Layers
 ------
-- ``finbot.data``      : ingest news & market history (AkShare, mock fallback)
-- ``finbot.features``  : factor / feature engineering
-- ``finbot.models``    : limit-up probability ranker
-- ``finbot.strategy``  : portfolio-aware action planning
-- ``finbot.pipeline``  : daily end-to-end orchestration
+- ``finbot.data``      : data-source abstraction + local incremental warehouse
+- ``finbot.features``  : economically-grounded factor library + neutralization
+- ``finbot.labels``    : forward-return labels + panel dataset
+- ``finbot.models``    : cross-sectional forward-return ranker
+- ``finbot.backtest``  : walk-forward validation with A-share frictions
+- ``finbot.portfolio`` : risk model + target-portfolio construction + orders
+- ``finbot.regime``    : market-state classification
+- ``finbot.pipeline``  : end-to-end orchestration
 - ``finbot.cli``       : command-line surface consumed by the Claude Code Skills
 
 The heavy reasoning (news interpretation, regime read, final stock picks and

@@ -24,7 +24,7 @@ from finbot import pipeline
 
 def run_once(date: str | None = None) -> int:
     cfg = load_config()
-    summary = pipeline.run_daily(date, cfg)
+    summary = pipeline.run_portfolio(date, cfg)
     logging.info("daily run complete: %s", summary)
     print(summary)
     return 0
