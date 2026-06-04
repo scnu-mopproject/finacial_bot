@@ -1,12 +1,15 @@
 name: daily-briefing
 
-# Scheduled A-share daily run. By default it runs on mock data so the workflow
-# is self-contained and green out of the box. Flip FINBOT_DATA_SOURCE to
-# "akshare" (and ensure outbound network is allowed) for live data.
+# Scheduled A-share daily job via the new portfolio pipeline (scripts/daily_job.py):
+#   trading-day guard -> warehouse update -> run -> (optional Claude briefing) -> push.
+# Defaults to mock data so the workflow is self-contained and green out of the box.
+# For live runs, set repository variable FINBOT_SOURCE=akshare (and optionally the
+# secrets below). Note: GitHub runners are outside mainland China — akshare's
+# domestic endpoints may be slow/blocked; a self-hosted/domestic runner is more reliable.
 on:
   schedule:
-    # 07:30 UTC ≈ 15:30 Asia/Shanghai (after market close). Cron is UTC.
-    - cron: "30 7 * * 1-5"
+    # 07:40 UTC ≈ 15:40 Asia/Shanghai (after market close). Cron is UTC.
+    - cron: "40 7 * * 1-5"
   workflow_dispatch:
     inputs:
       date:
@@ -16,28 +19,54 @@ on:
         description: "Data source: akshare or mock"
         required: false
         default: "mock"
+      with_llm:
+        description: "Generate the Claude briefing (needs ANTHROPIC_API_KEY secret)"
+        required: false
+        default: "0"
 
 jobs:
   briefing:
     runs-on: ubuntu-latest
     env:
-      FINBOT_DATA_SOURCE: ${{ github.event.inputs.source || 'mock' }}
+      # Inputs (dispatch) fall back to repo variables, then sane defaults.
+      FINBOT_SOURCE: ${{ github.event.inputs.source || vars.FINBOT_SOURCE || 'mock' }}
+      FINBOT_DATE: ${{ github.event.inputs.date }}
+      FINBOT_WITH_LLM: ${{ github.event.inputs.with_llm || vars.FINBOT_WITH_LLM || '0' }}
+      # Report push (optional). Configure FINBOT_NOTIFY as a repo variable and the
+      # matching credential as a repo secret; absent ones leave pushing disabled.
+      FINBOT_NOTIFY: ${{ vars.FINBOT_NOTIFY || 'none' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+      SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # Persist the data warehouse across runs so updates are incremental.
+      - name: Cache data warehouse
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: finbot-warehouse-${{ env.FINBOT_SOURCE }}
+
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          # Live data needs akshare; harmless to install for mock too.
-          pip install akshare || echo "akshare install skipped (mock mode ok)"
-      - name: Run daily pipeline
+          pip install -e . pyarrow
+          # Live data + model + Claude agent layer (harmless under mock too).
+          pip install akshare lightgbm anthropic || echo "optional deps partial install"
+
+      - name: Run daily job
         run: |
-          DATE_ARG=""
-          if [ -n "${{ github.event.inputs.date }}" ]; then DATE_ARG="--date ${{ github.event.inputs.date }}"; fi
-          finbot run $DATE_ARG --source "$FINBOT_DATA_SOURCE"
+          # mock is a demo: skip the trading-day guard so it always produces output.
+          if [ "$FINBOT_SOURCE" = "mock" ]; then export FINBOT_SKIP_TRADING_GUARD=1; fi
+          python scripts/daily_job.py
+
       - name: Upload report & artifacts
         uses: actions/upload-artifact@v4
         with:
