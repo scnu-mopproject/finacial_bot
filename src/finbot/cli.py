@@ -113,6 +113,58 @@ def cmd_factors(args) -> int:
     return 0
 
 
+def cmd_construct(args) -> int:
+    """Build the target portfolio and rebalance orders from current holdings (M6)."""
+    from .data import Warehouse
+    from .features.registry import build_factor_panel
+    from .models import Ranker
+    from .portfolio import Portfolio, build_target_portfolio, rebalance_orders
+
+    cfg, _ = _resolve(args)
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    panel = build_factor_panel(wh)
+    if panel.empty:
+        _print_json({"error": "empty factor panel; run `finbot update` first"})
+        return 1
+    ranker = Ranker(store_dir=str(cfg.path("model.store_dir")))
+    scored = ranker.rank(panel, top_n=10_000)  # score the whole latest cross-section
+
+    # current holdings -> weights
+    pf = Portfolio.from_file(args.portfolio) if args.portfolio else (
+        Portfolio.from_file(cfg.path("strategy.portfolio_file"))
+        if cfg.path("strategy.portfolio_file").exists() else Portfolio.empty())
+    equity = pf.equity or 1.0
+    prev_weights = {p.code: p.market_value / equity for p in pf.positions}
+
+    target = build_target_portfolio(
+        scored, prev_weights=prev_weights,
+        n_holdings=int(cfg.get("strategy.n_holdings", 12)),
+        enter_pct=float(cfg.get("strategy.enter_pct", 0.15)),
+        hold_pct=float(cfg.get("strategy.hold_pct", 0.30)),
+        max_total_exposure=float(cfg.get("strategy.risk.max_total_exposure", 0.90)),
+        max_position_pct=float(cfg.get("strategy.risk.max_position_pct", 0.15)),
+        max_turnover=float(cfg.get("strategy.max_turnover", 0.30)),
+    )
+
+    # reference prices / names from the warehouse (latest close + basics)
+    bars = wh.bars()
+    prices = (bars.sort_values("date").groupby("code")["close"].last().to_dict()
+              if not bars.empty else {})
+    basics = wh.basics()
+    names = (basics.sort_values("date").groupby("code")["name"].last().to_dict()
+             if not basics.empty and "name" in basics.columns else {})
+    orders = rebalance_orders(pf, target["weights"], prices=prices, names=names)
+
+    _print_json({
+        "date": str(panel["date"].max()),
+        "using_model": ranker.using_model,
+        "target": target,
+        "rebalance_orders": [o for o in orders if o["action"] != "HOLD"],
+        "disclaimer": "程序化调仓建议，仅供研究参考，不构成投资建议；执行用次日开盘并跳过封板标的。",
+    })
+    return 0
+
+
 def cmd_train(args) -> int:
     """Walk-forward train the ranking model and report OOS IC (design §7 / M5)."""
     from .data import Warehouse
@@ -220,6 +272,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_fac)
     p_fac.add_argument("--catalog", action="store_true", help="只打印因子目录与经济逻辑")
     p_fac.set_defaults(func=cmd_factors)
+
+    p_con = sub.add_parser("construct", help="构建目标组合并生成调仓指令（结合实仓）")
+    _add_common(p_con)
+    p_con.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
+    p_con.set_defaults(func=cmd_construct)
 
     p_tr = sub.add_parser("train", help="walk-forward 训练排序模型并报告样本外 IC")
     _add_common(p_tr)
