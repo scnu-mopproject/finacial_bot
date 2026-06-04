@@ -15,21 +15,21 @@ description: 一键生成A股每日观察简报。当用户说"今天有什么�
 > 默认日期为今天；如用户指定日期，用 `--date YYYY-MM-DD` 贯穿全程。
 > 没有真实数据源时加 `--source mock` 也能完整演示。
 
-1. **数据 + 市场画像** — 委派给 `market-analyst` 子智能体：
-   - 它会 `finbot crawl` 并解读新闻，产出市场温度与主线板块。
-2. **选股研判** — 委派给 `stock-picker` 子智能体：
-   - 它会 `finbot predict` 拿候选榜，结合上一步的板块结论输出观察清单。
-3. **策略建议** — 委派给 `strategy-advisor` 子智能体：
-   - 它会 `finbot strategy --portfolio config/portfolio.json`，结合实仓与风控输出操作计划。
-4. **汇总简报** — 把三份结果整合为一份 Markdown 简报，并提示用户：
-   - 程序化完整报告已写入 `reports/report_<date>.md`（可直接 `finbot run` 生成）。
+1. **数据 + 市场状态** — 委派给 `market-analyst` 子智能体：
+   - 它会 `finbot update` + `finbot regime` 并解读新闻，产出市场状态(risk-on/off)、跨资产解读与主线板块。
+2. **因子选股研判** — 委派给 `stock-picker` 子智能体：
+   - 它基于 `finbot run` 的因子排序榜 + `finbot backtest` 的 IC，叠加催化研判输出观察清单。
+3. **组合与调仓** — 委派给 `strategy-advisor` 子智能体：
+   - 它会 `finbot construct --portfolio config/portfolio.json`，结合实仓/风控/regime 输出**目标组合 + 调仓指令**。
+4. **汇总简报** — 整合三份结果为一份 Markdown 简报，并提示：
+   - 程序化报告已写入 `reports/portfolio_<date>.md`。
 
 ## 快捷方式
-如果用户只想要程序化报告、不需要逐层 LLM 研判，直接：
+只想要程序化报告、不需要逐层 LLM 研判，直接：
 ```bash
-finbot run --date <YYYY-MM-DD>
+finbot run --date <YYYY-MM-DD> --portfolio config/portfolio.json
 ```
-这会一次性产出候选榜、策略与 `reports/report_<date>.md`。
+一次性产出 regime、目标组合、调仓指令与 `reports/portfolio_<date>.md`。
 
 ## 重要纪律
 - 始终保留风险免责声明。

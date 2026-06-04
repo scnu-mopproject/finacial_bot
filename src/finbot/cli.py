@@ -245,9 +245,31 @@ def cmd_strategy(args) -> int:
 
 
 def cmd_run(args) -> int:
+    """Full end-to-end portfolio flow (design §3-§10): warehouse -> factors ->
+    rank -> regime -> target portfolio -> rebalance orders -> report."""
+    from .portfolio import Portfolio
+
     cfg, date = _resolve(args)
-    summary = pipeline.run_daily(date, cfg)
+    portfolio = Portfolio.from_file(args.portfolio) if args.portfolio else None
+    summary = pipeline.run_portfolio(date, cfg, portfolio=portfolio)
     _print_json(summary)
+    return 0
+
+
+def cmd_regime(args) -> int:
+    """Classify the market regime (design §10)."""
+    from .data import Warehouse
+    from . import regime as regime_mod
+
+    cfg, _ = _resolve(args)
+    wh = Warehouse(root=str(cfg.path("data.warehouse_dir")), benchmark=cfg.get("data.benchmark", "000985"))
+    _print_json(regime_mod.classify(wh))
+    return 0
+
+
+def cmd_run_legacy(args) -> int:
+    cfg, date = _resolve(args)
+    _print_json(pipeline.run_daily(date, cfg))
     return 0
 
 
@@ -306,9 +328,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_strat.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
     p_strat.set_defaults(func=cmd_strategy)
 
-    p_run = sub.add_parser("run", help="完整跑一遍：爬取->特征->预测->策略->报告")
+    p_regime = sub.add_parser("regime", help="判定市场状态(risk-on/neutral/risk-off)与板块倾斜")
+    _add_common(p_regime)
+    p_regime.set_defaults(func=cmd_regime)
+
+    p_run = sub.add_parser("run", help="完整跑一遍：数据->因子->排序->regime->目标组合->调仓指令->报告")
     _add_common(p_run)
+    p_run.add_argument("--portfolio", default=None, help="持仓 JSON 文件路径")
     p_run.set_defaults(func=cmd_run)
+
+    p_legacy = sub.add_parser("run-legacy", help="(弃用)旧涨停链路，M9 将移除")
+    _add_common(p_legacy)
+    p_legacy.set_defaults(func=cmd_run_legacy)
 
     return parser
 
