@@ -12,9 +12,9 @@ services:
     env_file:
       - .env                      # secrets / channel config (never committed)
     environment:
+      # Only TZ is forced here; FINBOT_SOURCE / FINBOT_WITH_LLM / FINBOT_NOTIFY
+      # are controlled by .env so you can flip them without editing this file.
       TZ: Asia/Shanghai
-      FINBOT_SOURCE: akshare      # akshare | mock
-      FINBOT_WITH_LLM: "1"        # set to "0" to skip the Claude briefing
     volumes:
       - ./config:/app/config:ro            # config.yaml + portfolio.json (read-only)
       - finbot_data:/app/data              # warehouse / datasets (persistent!)
